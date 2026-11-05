@@ -1,9 +1,11 @@
 import random
 from datetime import timedelta
-from sqlalchemy import select
+from sqlalchemy import select, text
 from .database import *
 
 def seed(db):
+    if db.bind.dialect.name=='postgresql':
+        db.execute(text('SELECT pg_advisory_xact_lock(7231042)'))
     if db.scalar(select(Product.id).limit(1)): return
     rng = random.Random(72)
     names = ['Wireless scanner', 'Safety gloves', 'Industrial sensor', 'Packing tape', 'Steel fastener', 'USB-C adapter', 'LED work light', 'Cable organizer', 'Thermal label', 'Precision bearing', 'Filter cartridge', 'Motor controller']
@@ -17,16 +19,25 @@ def seed(db):
         db.add(Worker(name=name, role='Supervisor' if i==0 else 'Picker',skills='Picking, Packing, Express' if i%3==0 else 'Picking, Packing',available=i!=14, x=(i%4)*8,y=0))
     db.flush()
     products=db.scalars(select(Product)).all()
+    customers=db.scalars(select(Customer).order_by(Customer.id)).all()
+    pending=[]
     for i in range(220):
-        created=now()-timedelta(hours=rng.randint(0,168))
-        order=Order(customer_id=i%55+1,created=created,deadline=created+timedelta(hours=rng.choice([12,24,48,96,192])),shipping='Express' if i%4==0 else 'Standard')
-        db.add(order); db.flush()
+        created=now()-timedelta(hours=rng.randint(12 if i<125 else 0,168))
+        order=Order(customer_id=customers[i%55].id,created=created,deadline=created+timedelta(hours=rng.choice([12,24,48,96,192])),shipping='Express' if i%4==0 else 'Standard',value=0)
+        db.add(order)
+        lines=[]
         for p in rng.sample(products,rng.randint(1,4)):
-            q=rng.randint(1,4); db.add(Item(order_id=order.id,product_id=p.id,quantity=q));order.value+=p.price*q
+            q=rng.randint(1,4);lines.append((p.id,q));order.value+=p.price*q
         if i<125:
-            order.status='Delivered';order.completed_at=created+timedelta(hours=rng.randint(2,10));order.tracking=f'DEMO-{order.id:07}'
+            order.status='Delivered';order.completed_at=created+timedelta(hours=rng.randint(2,10))
+        pending.append((order,lines))
+    db.flush()
+    for order,lines in pending:
+        for pid,q in lines:db.add(Item(order_id=order.id,product_id=pid,quantity=q))
+        if order.status=='Delivered':
+            order.tracking=f'DEMO-{order.id:07}'
             for stage in ['Picked','Packed','Shipped','Delivered']:
                 db.add(Event(kind=stage,message=f'Synthetic historical {stage.lower()} event',order_id=order.id,created=order.completed_at,actor='Demo seed'))
-        db.add(Event(kind='Order received',message=f'Order WH-{order.id:05} received',order_id=order.id,created=created,actor='Demo seed'))
+        db.add(Event(kind='Order received',message=f'Order WH-{order.id:05} received',order_id=order.id,created=order.created,actor='Demo seed'))
     db.add(Event(kind='System',message='Synthetic demo dataset initialized: 120 products, 55 customers, 220 orders and 16 workers.'))
     db.commit()
