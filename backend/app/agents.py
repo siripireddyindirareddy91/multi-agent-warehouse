@@ -73,7 +73,7 @@ def execute(db,name,strategy='Batch'):
             elif name=='Picking Optimization':
                 count=0
                 for o in orders:
-                    if o.status!='Ready for Picking':continue
+                    if o.status not in ['Ready for Picking','Picking']:continue
                     w=db.get(Worker,o.worker_id)
                     result=optimize([(products[i.product_id].x,products[i.product_id].y) for i in items[o.id]],(w.x,w.y),strategy)
                     o.route=json.dumps(result);o.status='Picking';count+=1

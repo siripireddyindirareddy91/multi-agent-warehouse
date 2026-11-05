@@ -80,6 +80,11 @@ def test_optimizer_computes_distances():
     assert route['stops']==4
     assert optimize([])['saved']==0
     assert optimize([(2,3),(2,3)])['stops']==1
+    for strategy in ['Batch','Zone','Wave']:
+        result=optimize([(10,5),(1,2),(15,3),(2,2)],strategy=strategy)
+        assert result['optimized_distance']<=result['original_distance']
+        assert len(result['optimized'])==6
+        assert result['strategy']==strategy
 
 def test_fulfillment_requires_quantity_verification(client,headers):
     state=client.get('/api/state',headers=headers).json()
